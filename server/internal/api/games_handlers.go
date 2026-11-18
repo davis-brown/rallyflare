@@ -288,7 +288,7 @@ func (s *Server) handleListCourtGames(w http.ResponseWriter, r *http.Request) {
 			players = []gamePlayer{}
 		}
 		out = append(out, map[string]any{
-			"id": g.ID, "court_id": g.CourtID, "recorded_by": g.RecordedBy,
+			"id": g.ID, "court_id": g.CourtID,
 			"winning_team": g.WinningTeam, "score_win": g.ScoreWin, "score_lose": g.ScoreLose,
 			"played_at": g.PlayedAt, "players": players,
 		})

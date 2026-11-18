@@ -96,7 +96,6 @@ export interface GamePlayer {
 export interface CourtGame {
   id: string;
   court_id: string;
-  recorded_by: string;
   winning_team: number;
   score_win: number | null;
   score_lose: number | null;
