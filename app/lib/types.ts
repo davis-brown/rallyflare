@@ -404,7 +404,7 @@ export interface AdminUser {
 
 export interface AdminAction {
   id: string;
-  action: "promote" | "demote";
+  action: "promote" | "demote" | "clear_avatar" | "suspend";
   created_at: string;
   actor_id: string;
   actor_name: string;

@@ -16,6 +16,13 @@ func TestSuspensionPreservesAccountDeletion(t *testing.T) {
 		t.Fatalf("suspend: %d %s", resp.StatusCode, readBody(t, resp))
 	}
 	resp.Body.Close()
+	var audits int
+	if err := st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM admin_actions WHERE action='suspend' AND actor_id=$1 AND target_user_id=$2`, admin.User.ID, user.User.ID).Scan(&audits); err != nil {
+		t.Fatal(err)
+	}
+	if audits != 1 {
+		t.Fatalf("suspend audit rows %d, want 1", audits)
+	}
 	resp = doJSON(t, ts, http.MethodPost, "/courts", user.AccessToken, map[string]any{"name": "No", "lat": 40.7, "lng": -74})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("suspended player posted: %d", resp.StatusCode)
