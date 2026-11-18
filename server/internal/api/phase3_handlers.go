@@ -345,8 +345,21 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "slow down — one message every few seconds")
 		return
 	}
-	// After the cooldown check so a flooder can't spend the classifier
-	// budget, and before the write so nothing unsafe is ever stored.
+	court, err := s.store.Queries.GetCourt(r.Context(), courtID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "court not found")
+			return
+		}
+		s.internalError(w, "get court", err)
+		return
+	}
+	if court.Status == "rejected" {
+		writeError(w, http.StatusUnprocessableEntity, "cannot post to a rejected court's chat")
+		return
+	}
+	// After the cooldown and court checks so a flooder or a dead court can't
+	// spend the classifier budget, and before the write so nothing unsafe is ever stored.
 	if !s.screenText(w, r, "court_message", body) {
 		return
 	}
