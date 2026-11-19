@@ -238,9 +238,23 @@ func (s *Server) handleCreateReport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.Note = &trimmed
-		if !s.screenText(w, r, "crowd_report_note", trimmed) {
+	}
+	court, err := s.store.Queries.GetCourt(r.Context(), courtID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "court not found")
 			return
 		}
+		s.internalError(w, "get court", err)
+		return
+	}
+	if court.Status == "rejected" {
+		writeError(w, http.StatusUnprocessableEntity, "cannot report on a rejected court")
+		return
+	}
+	// Court check first so no classifier call is spent on a report that cannot be stored.
+	if req.Note != nil && !s.screenText(w, r, "crowd_report_note", *req.Note) {
+		return
 	}
 	report, err := s.store.Queries.CreateCrowdReport(r.Context(), gen.CreateCrowdReportParams{
 		CourtID: courtID, UserID: userID(r),

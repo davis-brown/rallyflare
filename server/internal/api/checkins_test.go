@@ -344,3 +344,43 @@ func TestCreateReportAndActivity(t *testing.T) {
 		t.Fatalf("activity reports = %+v, want one report with player_count %d", activity.Reports, playerCount)
 	}
 }
+
+// Reports and chat must 404 on an unknown court (not 500 on the FK) and 422
+// on a rejected one, like every other court write.
+func TestReportAndMessageCourtChecks(t *testing.T) {
+	ts, st := newTestServer(t)
+	admin := registerUser(t, ts, "courtcheckadmin@test.local", "CourtCheckAdmin")
+	bootstrapAdmin(t, st, admin.User.ID)
+	u := registerUser(t, ts, "courtcheck@test.local", "CourtCheck")
+	court := createTestCourt(t, ts, u.AccessToken, "Fake Court", ruckerLat, ruckerLng)
+	resp := doJSON(t, ts, http.MethodPost, "/admin/courts/"+court.ID+"/status", admin.AccessToken, map[string]string{
+		"status": "rejected",
+	})
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("reject court: status %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	const unknownCourt = "00000000-0000-4000-8000-000000000000"
+	for _, tc := range []struct {
+		path string
+		body map[string]any
+	}{
+		{"/reports", map[string]any{"player_count": 4, "note": "packed"}},
+		{"/messages", map[string]any{"body": "anyone here?"}},
+	} {
+		for _, c := range []struct {
+			courtID string
+			want    int
+		}{
+			{unknownCourt, http.StatusNotFound},
+			{court.ID, http.StatusUnprocessableEntity},
+		} {
+			resp := doJSON(t, ts, http.MethodPost, "/courts/"+c.courtID+tc.path, u.AccessToken, tc.body)
+			if resp.StatusCode != c.want {
+				t.Errorf("POST %s on %s: status %d, want %d: %s", tc.path, c.courtID, resp.StatusCode, c.want, readBody(t, resp))
+			}
+			resp.Body.Close()
+		}
+	}
+}
