@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"github.com/davis-brown/rallyflare/server/internal/store/gen"
 )
 
 // Every reportable public content type needs an action a moderator can take.
@@ -61,6 +63,14 @@ func (s *Server) handleAdminRemoveContent(w http.ResponseWriter, r *http.Request
 	for _, query := range queries {
 		if _, err := tx.Exec(r.Context(), query, id); err != nil {
 			s.internalError(w, "remove reported content", err)
+			return
+		}
+	}
+	if req.Type == "user" {
+		if err := s.store.Queries.WithTx(tx).CreateAdminAction(r.Context(), gen.CreateAdminActionParams{
+			ActorID: userID(r), Action: "suspend", TargetUserID: id,
+		}); err != nil {
+			s.internalError(w, "create admin action", err)
 			return
 		}
 	}

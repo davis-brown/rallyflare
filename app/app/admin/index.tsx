@@ -17,7 +17,7 @@ import {
 } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
 import { safePathSegment } from "@/lib/routes";
-import type { AdminUser, Flag } from "@/lib/types";
+import type { AdminAction, AdminUser, Flag } from "@/lib/types";
 
 const entityLabels: Record<Flag["entity_type"], string> = {
   court: "Court",
@@ -227,6 +227,13 @@ function AdminManagementCard() {
   );
 }
 
+const ACTION_VERBS: Record<AdminAction["action"], string> = {
+  promote: "promoted",
+  demote: "demoted",
+  clear_avatar: "cleared the avatar of",
+  suspend: "suspended",
+};
+
 function AdminActionsCard() {
   const t = useTheme();
   const { data: actions, error, refetch } = useAdminActions();
@@ -246,7 +253,7 @@ function AdminActionsCard() {
         <View key={a.id} style={[styles.userRow, { borderTopColor: t.colors.border }]}>
           <Text style={[t.type.caption, { color: t.colors.textSecondary, flex: 1 }]}>
             <Text style={{ fontFamily: t.fonts.bodySemi }}>{a.actor_name}</Text>{" "}
-            {a.action === "promote" ? "promoted" : "demoted"}{" "}
+            {ACTION_VERBS[a.action]}{" "}
             <Text style={{ fontFamily: t.fonts.bodySemi }}>{a.target_name}</Text>
           </Text>
           <Text style={[t.type.caption, { color: t.colors.textMuted }]}>
