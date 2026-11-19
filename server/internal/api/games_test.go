@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -370,5 +371,41 @@ func TestCourtGamesHidePrivatePlayers(t *testing.T) {
 	}
 	if self := names(loser.AccessToken); !self["Private Loser"] {
 		t.Errorf("private player viewing their own game sees %v", self)
+	}
+}
+
+// The recorder is always a player, so a private recorder's id must not ride
+// along on the public listing next to their anonymized player entry.
+func TestCourtGamesHidePrivateRecorder(t *testing.T) {
+	ts, st := newTestServer(t)
+	recorder := registerUser(t, ts, "game-private-recorder@test.local", "Private Recorder")
+	loser := registerUser(t, ts, "game-recorder-opponent@test.local", "Opponent")
+	court := createTestCourt(t, ts, loser.AccessToken, "Recorder Court", ruckerLat, ruckerLng)
+	seedCheckIns(t, st, court.ID, recorder.User.ID, loser.User.ID)
+	doJSON(t, ts, http.MethodPatch, "/me", recorder.AccessToken, map[string]any{"is_private": true}).Body.Close()
+
+	resp := doJSON(t, ts, http.MethodPost, "/courts/"+court.ID+"/games", recorder.AccessToken, map[string]any{
+		"team_a": []string{recorder.User.ID}, "team_b": []string{loser.User.ID}, "winning_team": 0,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		defer resp.Body.Close()
+		t.Fatalf("record game: status %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	game := decodeJSON[gameResp](t, resp)
+	resp = doJSON(t, ts, http.MethodPost, "/games/"+game.Game.ID+"/confirm", loser.AccessToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		t.Fatalf("confirm: status %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, ts, http.MethodGet, "/courts/"+court.ID+"/games", "", nil)
+	defer resp.Body.Close()
+	body := readBody(t, resp)
+	if !strings.Contains(body, game.Game.ID) {
+		t.Fatalf("confirmed game missing from listing: %s", body)
+	}
+	if strings.Contains(body, recorder.User.ID) {
+		t.Errorf("anonymous listing leaks private recorder id %s: %s", recorder.User.ID, body)
 	}
 }
