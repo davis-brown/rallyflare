@@ -87,6 +87,26 @@ func (q *Queries) ConfirmGameParticipant(ctx context.Context, arg ConfirmGamePar
 	return result.RowsAffected(), nil
 }
 
+const countBlockedAmong = `-- name: CountBlockedAmong :one
+SELECT count(*)::int
+FROM blocked_users
+WHERE (blocker_id = $1 AND blocked_id = ANY($2::uuid[]))
+   OR (blocked_id = $1 AND blocker_id = ANY($2::uuid[]))
+`
+
+type CountBlockedAmongParams struct {
+	RecorderID uuid.UUID   `json:"recorder_id"`
+	UserIds    []uuid.UUID `json:"user_ids"`
+}
+
+// Blocks in either direction between the recorder and any of these players.
+func (q *Queries) CountBlockedAmong(ctx context.Context, arg CountBlockedAmongParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countBlockedAmong, arg.RecorderID, arg.UserIds)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countPlayersRecentlyAtCourt = `-- name: CountPlayersRecentlyAtCourt :one
 SELECT count(DISTINCT user_id)::int
 FROM check_ins
@@ -378,6 +398,11 @@ JOIN users u ON u.id = g.recorded_by
 WHERE g.status = 'unconfirmed'
   AND p.confirmed_at IS NULL
   AND p.team <> g.winning_team
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = $1 AND b.blocked_id = g.recorded_by)
+         OR (b.blocker_id = g.recorded_by AND b.blocked_id = $1)
+  )
 ORDER BY g.played_at DESC
 LIMIT 20
 `

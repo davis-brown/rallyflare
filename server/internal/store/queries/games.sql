@@ -28,6 +28,13 @@ WHERE court_id = sqlc.arg('court_id')
   AND user_id = ANY(sqlc.arg('user_ids')::uuid[])
   AND created_at > now() - interval '3 hours';
 
+-- name: CountBlockedAmong :one
+-- Blocks in either direction between the recorder and any of these players.
+SELECT count(*)::int
+FROM blocked_users
+WHERE (blocker_id = sqlc.arg('recorder_id') AND blocked_id = ANY(sqlc.arg('user_ids')::uuid[]))
+   OR (blocked_id = sqlc.arg('recorder_id') AND blocker_id = ANY(sqlc.arg('user_ids')::uuid[]));
+
 -- name: GetGame :one
 SELECT id, court_id, recorded_by, winning_team, score_win, score_lose,
     status, confirmed_at, played_at
@@ -114,6 +121,11 @@ JOIN users u ON u.id = g.recorded_by
 WHERE g.status = 'unconfirmed'
   AND p.confirmed_at IS NULL
   AND p.team <> g.winning_team
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = sqlc.arg('user_id') AND b.blocked_id = g.recorded_by)
+         OR (b.blocker_id = g.recorded_by AND b.blocked_id = sqlc.arg('user_id'))
+  )
 ORDER BY g.played_at DESC
 LIMIT 20;
 

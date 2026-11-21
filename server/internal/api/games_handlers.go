@@ -127,6 +127,18 @@ func (s *Server) handleRecordGame(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "every player must have checked in at this court")
 		return
 	}
+	// A block in either direction gives the same protection.
+	blocked, err := s.store.Queries.CountBlockedAmong(r.Context(), gen.CountBlockedAmongParams{
+		RecorderID: uid, UserIds: players,
+	})
+	if err != nil {
+		s.internalError(w, "check blocks among players", err)
+		return
+	}
+	if blocked > 0 {
+		writeError(w, http.StatusUnprocessableEntity, "you can't record a game with this player")
+		return
+	}
 
 	tx, err := s.store.Pool.Begin(r.Context())
 	if err != nil {
