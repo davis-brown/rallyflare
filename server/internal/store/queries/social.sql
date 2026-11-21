@@ -25,17 +25,27 @@ SELECT count(*)::int AS count FROM follows WHERE follower_id = $1;
 SELECT u.id, u.display_name, u.avatar_url, f.created_at
 FROM follows f
 JOIN users u ON u.id = f.follower_id
-WHERE f.followee_id = $1
+WHERE f.followee_id = sqlc.arg(followee_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = sqlc.arg(viewer_id))
+  )
 ORDER BY f.created_at DESC
-LIMIT $2;
+LIMIT sqlc.arg(max_rows);
 
 -- name: ListFollowing :many
 SELECT u.id, u.display_name, u.avatar_url, f.created_at
 FROM follows f
 JOIN users u ON u.id = f.followee_id
-WHERE f.follower_id = $1
+WHERE f.follower_id = sqlc.arg(follower_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = sqlc.arg(viewer_id) AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = sqlc.arg(viewer_id))
+  )
 ORDER BY f.created_at DESC
-LIMIT $2;
+LIMIT sqlc.arg(max_rows);
 
 -- name: AreBlocked :one
 SELECT EXISTS (

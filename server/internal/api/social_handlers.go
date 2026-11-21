@@ -179,6 +179,18 @@ func (s *Server) listFollowRows(w http.ResponseWriter, r *http.Request, follower
 		return
 	}
 	viewer := s.optionalUserID(r)
+	if viewer != uuid.Nil && viewer != targetID {
+		blocked, err := s.store.Queries.AreBlocked(r.Context(), gen.AreBlockedParams{BlockerID: viewer, BlockedID: targetID})
+		if err != nil {
+			s.internalError(w, "check block", err)
+			return
+		}
+		if blocked {
+			// 404, not 403, so the response doesn't reveal the block.
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+	}
 	if viewer != targetID {
 		stats, err := s.store.Queries.GetProfileStats(r.Context(), targetID)
 		if err == nil && stats.IsPrivate {
@@ -196,9 +208,9 @@ func (s *Server) listFollowRows(w http.ResponseWriter, r *http.Request, follower
 	const limit = 100
 	var rows any
 	if followers {
-		rows, err = s.store.Queries.ListFollowers(r.Context(), gen.ListFollowersParams{FolloweeID: targetID, Limit: limit})
+		rows, err = s.store.Queries.ListFollowers(r.Context(), gen.ListFollowersParams{FolloweeID: targetID, ViewerID: viewer, MaxRows: limit})
 	} else {
-		rows, err = s.store.Queries.ListFollowing(r.Context(), gen.ListFollowingParams{FollowerID: targetID, Limit: limit})
+		rows, err = s.store.Queries.ListFollowing(r.Context(), gen.ListFollowingParams{FollowerID: targetID, ViewerID: viewer, MaxRows: limit})
 	}
 	if err != nil {
 		s.internalError(w, "list follows", err)

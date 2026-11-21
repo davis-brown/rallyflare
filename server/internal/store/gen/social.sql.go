@@ -364,13 +364,19 @@ SELECT u.id, u.display_name, u.avatar_url, f.created_at
 FROM follows f
 JOIN users u ON u.id = f.follower_id
 WHERE f.followee_id = $1
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = $2 AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = $2)
+  )
 ORDER BY f.created_at DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListFollowersParams struct {
 	FolloweeID uuid.UUID `json:"followee_id"`
-	Limit      int32     `json:"limit"`
+	ViewerID   uuid.UUID `json:"viewer_id"`
+	MaxRows    int32     `json:"max_rows"`
 }
 
 type ListFollowersRow struct {
@@ -381,7 +387,7 @@ type ListFollowersRow struct {
 }
 
 func (q *Queries) ListFollowers(ctx context.Context, arg ListFollowersParams) ([]ListFollowersRow, error) {
-	rows, err := q.db.Query(ctx, listFollowers, arg.FolloweeID, arg.Limit)
+	rows, err := q.db.Query(ctx, listFollowers, arg.FolloweeID, arg.ViewerID, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}
@@ -410,13 +416,19 @@ SELECT u.id, u.display_name, u.avatar_url, f.created_at
 FROM follows f
 JOIN users u ON u.id = f.followee_id
 WHERE f.follower_id = $1
+  AND NOT EXISTS (
+      SELECT 1 FROM blocked_users b
+      WHERE (b.blocker_id = $2 AND b.blocked_id = u.id)
+         OR (b.blocker_id = u.id AND b.blocked_id = $2)
+  )
 ORDER BY f.created_at DESC
-LIMIT $2
+LIMIT $3
 `
 
 type ListFollowingParams struct {
 	FollowerID uuid.UUID `json:"follower_id"`
-	Limit      int32     `json:"limit"`
+	ViewerID   uuid.UUID `json:"viewer_id"`
+	MaxRows    int32     `json:"max_rows"`
 }
 
 type ListFollowingRow struct {
@@ -427,7 +439,7 @@ type ListFollowingRow struct {
 }
 
 func (q *Queries) ListFollowing(ctx context.Context, arg ListFollowingParams) ([]ListFollowingRow, error) {
-	rows, err := q.db.Query(ctx, listFollowing, arg.FollowerID, arg.Limit)
+	rows, err := q.db.Query(ctx, listFollowing, arg.FollowerID, arg.ViewerID, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}
