@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -119,16 +121,23 @@ func TestFollowListsHideBlocks(t *testing.T) {
 	}
 	doJSON(t, ts, http.MethodPut, "/users/"+b.User.ID+"/block", a.AccessToken, nil).Body.Close()
 
-	// Target-level: each side gets 404 from the other's lists.
+	// Target-level: each side sees the other's lists exactly like an unknown user's.
+	unknown := func(list string) string {
+		resp := doJSON(t, ts, http.MethodGet, "/users/"+uuid.NewString()+"/"+list, "", nil)
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("%d %s", resp.StatusCode, raw)
+	}
 	for _, tc := range []struct{ viewer, target string }{
 		{b.AccessToken, a.User.ID}, {a.AccessToken, b.User.ID},
 	} {
 		for _, list := range []string{"followers", "following"} {
 			resp := doJSON(t, ts, http.MethodGet, "/users/"+tc.target+"/"+list, tc.viewer, nil)
-			if resp.StatusCode != http.StatusNotFound {
-				t.Errorf("%s of %s across block: status %d, want 404", list, tc.target, resp.StatusCode)
-			}
+			raw, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			if got, want := fmt.Sprintf("%d %s", resp.StatusCode, raw), unknown(list); got != want || resp.StatusCode != http.StatusOK {
+				t.Errorf("%s of %s across block: %q, want %q", list, tc.target, got, want)
+			}
 		}
 	}
 

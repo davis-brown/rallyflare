@@ -179,18 +179,6 @@ func (s *Server) listFollowRows(w http.ResponseWriter, r *http.Request, follower
 		return
 	}
 	viewer := s.optionalUserID(r)
-	if viewer != uuid.Nil && viewer != targetID {
-		blocked, err := s.store.Queries.AreBlocked(r.Context(), gen.AreBlockedParams{BlockerID: viewer, BlockedID: targetID})
-		if err != nil {
-			s.internalError(w, "check block", err)
-			return
-		}
-		if blocked {
-			// 404, not 403, so the response doesn't reveal the block.
-			writeError(w, http.StatusNotFound, "user not found")
-			return
-		}
-	}
 	if viewer != targetID {
 		stats, err := s.store.Queries.GetProfileStats(r.Context(), targetID)
 		if err == nil && stats.IsPrivate {
@@ -203,6 +191,18 @@ func (s *Server) listFollowRows(w http.ResponseWriter, r *http.Request, follower
 				writeError(w, http.StatusForbidden, "this account is private")
 				return
 			}
+		}
+	}
+	if viewer != uuid.Nil && viewer != targetID {
+		blocked, err := s.store.Queries.AreBlocked(r.Context(), gen.AreBlockedParams{BlockerID: viewer, BlockedID: targetID})
+		if err != nil {
+			s.internalError(w, "check block", err)
+			return
+		}
+		if blocked {
+			// Same body as an empty list (after the private check, so its 403 still matches anonymous) to hide the block.
+			writeJSON(w, http.StatusOK, map[string]any{"users": nil})
+			return
 		}
 	}
 	const limit = 100
