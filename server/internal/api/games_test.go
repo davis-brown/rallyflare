@@ -448,7 +448,7 @@ func TestRecordGameRespectsBlocks(t *testing.T) {
 		recorder, opponent testUser
 	}{
 		{"blocked recorder", b, a, a, b},
-		{"blocking recorder", a, b, b, a},
+		{"blocking recorder", a, b, a, b},
 	} {
 		block(c.blocker, c.blocked)
 		resp := record(c.recorder, c.opponent)
@@ -468,7 +468,7 @@ func TestRecordGameRespectsBlocks(t *testing.T) {
 		defer resp.Body.Close()
 		t.Fatalf("record unblocked game: status %d: %s", resp.StatusCode, readBody(t, resp))
 	}
-	resp.Body.Close()
+	gameID := decodeJSON[gameResp](t, resp).Game.ID
 	resp = doJSON(t, ts, http.MethodGet, "/me/games/pending", a.AccessToken, nil)
 	if pending := decodeJSON[map[string][]map[string]any](t, resp); len(pending["games"]) != 1 {
 		t.Fatalf("pending before block = %d, want 1", len(pending["games"]))
@@ -477,5 +477,20 @@ func TestRecordGameRespectsBlocks(t *testing.T) {
 	resp = doJSON(t, ts, http.MethodGet, "/me/games/pending", a.AccessToken, nil)
 	if pending := decodeJSON[map[string][]map[string]any](t, resp); len(pending["games"]) != 0 {
 		t.Errorf("pending after block = %d, want 0", len(pending["games"]))
+	}
+
+	// Nor can the blocker confirm it with the saved game id.
+	resp = doJSON(t, ts, http.MethodPost, "/games/"+gameID+"/confirm", a.AccessToken, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("confirm after block: status %d, want 403: %s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+	var status string
+	if err := st.Pool.QueryRow(context.Background(),
+		"SELECT status FROM games WHERE id = $1", gameID).Scan(&status); err != nil {
+		t.Fatalf("read game status: %v", err)
+	}
+	if status != "unconfirmed" {
+		t.Errorf("status after blocked confirm = %q, want unconfirmed", status)
 	}
 }

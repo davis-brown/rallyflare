@@ -209,6 +209,18 @@ func (s *Server) handleConfirmGame(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "only the other team can confirm a result")
 		return
 	}
+	// A block placed after recording also stops the result being settled.
+	blocked, err := s.store.Queries.CountBlockedAmong(r.Context(), gen.CountBlockedAmongParams{
+		RecorderID: uid, UserIds: []uuid.UUID{game.RecordedBy},
+	})
+	if err != nil {
+		s.internalError(w, "check blocks with recorder", err)
+		return
+	}
+	if blocked > 0 {
+		writeError(w, http.StatusForbidden, "you can't confirm a game with this player")
+		return
+	}
 
 	if _, err := s.store.Queries.ConfirmGameParticipant(r.Context(), gen.ConfirmGameParticipantParams{
 		GameID: gameID, UserID: uid,
