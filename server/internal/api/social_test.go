@@ -2,6 +2,8 @@ package api_test
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -103,6 +105,69 @@ func TestFollowBlockedRejected(t *testing.T) {
 		t.Errorf("follow while blocked: status %d, want 409", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestFollowListsHideBlocks(t *testing.T) {
+	ts, _ := newTestServer(t)
+	a := registerUser(t, ts, "fla@test.local", "A")
+	b := registerUser(t, ts, "flb@test.local", "B")
+	c := registerUser(t, ts, "flc@test.local", "C")
+	d := registerUser(t, ts, "fld@test.local", "D")
+
+	// C follows A and B, and both follow C, so they appear in both of C's lists.
+	for _, u := range []testUser{a, b} {
+		doJSON(t, ts, http.MethodPut, "/users/"+u.User.ID+"/follow", c.AccessToken, nil).Body.Close()
+		doJSON(t, ts, http.MethodPut, "/users/"+c.User.ID+"/follow", u.AccessToken, nil).Body.Close()
+	}
+	doJSON(t, ts, http.MethodPut, "/users/"+b.User.ID+"/block", a.AccessToken, nil).Body.Close()
+
+	// Target-level: each side sees the other's lists exactly like an unknown user's.
+	unknown := func(list string) string {
+		resp := doJSON(t, ts, http.MethodGet, "/users/"+uuid.NewString()+"/"+list, "", nil)
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("%d %s", resp.StatusCode, raw)
+	}
+	for _, tc := range []struct{ viewer, target string }{
+		{b.AccessToken, a.User.ID}, {a.AccessToken, b.User.ID},
+	} {
+		for _, list := range []string{"followers", "following"} {
+			resp := doJSON(t, ts, http.MethodGet, "/users/"+tc.target+"/"+list, tc.viewer, nil)
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if got, want := fmt.Sprintf("%d %s", resp.StatusCode, raw), unknown(list); got != want || resp.StatusCode != http.StatusOK {
+				t.Errorf("%s of %s across block: %q, want %q", list, tc.target, got, want)
+			}
+		}
+	}
+
+	ids := func(token, list string) map[string]bool {
+		resp := doJSON(t, ts, http.MethodGet, "/users/"+c.User.ID+"/"+list, token, nil)
+		body := decodeJSON[struct {
+			Users []struct {
+				ID string `json:"id"`
+			} `json:"users"`
+		}](t, resp)
+		out := map[string]bool{}
+		for _, u := range body.Users {
+			out[u.ID] = true
+		}
+		return out
+	}
+	// Row-level: a third party's lists hide the blocked pair from each other.
+	for _, list := range []string{"followers", "following"} {
+		if got := ids(b.AccessToken, list); got[a.User.ID] || !got[b.User.ID] {
+			t.Errorf("B viewing C's %s: %v", list, got)
+		}
+		if got := ids(a.AccessToken, list); got[b.User.ID] || !got[a.User.ID] {
+			t.Errorf("A viewing C's %s: %v", list, got)
+		}
+		for _, token := range []string{d.AccessToken, ""} {
+			if got := ids(token, list); !got[a.User.ID] || !got[b.User.ID] {
+				t.Errorf("unblocked viewer of C's %s: %v", list, got)
+			}
+		}
+	}
 }
 
 func TestAvatarUploadAndClear(t *testing.T) {

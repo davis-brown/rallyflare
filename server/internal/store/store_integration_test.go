@@ -770,11 +770,11 @@ func TestFollowGraph(t *testing.T) {
 	if n, _ := st.Queries.CountFollowing(ctx, a); n != 1 {
 		t.Errorf("following of a = %d, want 1", n)
 	}
-	followers, err := st.Queries.ListFollowers(ctx, gen.ListFollowersParams{FolloweeID: b, Limit: 10})
+	followers, err := st.Queries.ListFollowers(ctx, gen.ListFollowersParams{FolloweeID: b, MaxRows: 10})
 	if err != nil || len(followers) != 1 || followers[0].ID != a {
 		t.Fatalf("ListFollowers = %+v, err=%v", followers, err)
 	}
-	followees, err := st.Queries.ListFollowing(ctx, gen.ListFollowingParams{FollowerID: a, Limit: 10})
+	followees, err := st.Queries.ListFollowing(ctx, gen.ListFollowingParams{FollowerID: a, MaxRows: 10})
 	if err != nil || len(followees) != 1 || followees[0].ID != b {
 		t.Fatalf("ListFollowing = %+v, err=%v", followees, err)
 	}

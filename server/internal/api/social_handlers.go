@@ -193,12 +193,24 @@ func (s *Server) listFollowRows(w http.ResponseWriter, r *http.Request, follower
 			}
 		}
 	}
+	if viewer != uuid.Nil && viewer != targetID {
+		blocked, err := s.store.Queries.AreBlocked(r.Context(), gen.AreBlockedParams{BlockerID: viewer, BlockedID: targetID})
+		if err != nil {
+			s.internalError(w, "check block", err)
+			return
+		}
+		if blocked {
+			// Same body as an empty list (after the private check, so its 403 still matches anonymous) to hide the block.
+			writeJSON(w, http.StatusOK, map[string]any{"users": nil})
+			return
+		}
+	}
 	const limit = 100
 	var rows any
 	if followers {
-		rows, err = s.store.Queries.ListFollowers(r.Context(), gen.ListFollowersParams{FolloweeID: targetID, Limit: limit})
+		rows, err = s.store.Queries.ListFollowers(r.Context(), gen.ListFollowersParams{FolloweeID: targetID, ViewerID: viewer, MaxRows: limit})
 	} else {
-		rows, err = s.store.Queries.ListFollowing(r.Context(), gen.ListFollowingParams{FollowerID: targetID, Limit: limit})
+		rows, err = s.store.Queries.ListFollowing(r.Context(), gen.ListFollowingParams{FollowerID: targetID, ViewerID: viewer, MaxRows: limit})
 	}
 	if err != nil {
 		s.internalError(w, "list follows", err)
