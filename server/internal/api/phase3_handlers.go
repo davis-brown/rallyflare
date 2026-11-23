@@ -240,6 +240,19 @@ func (s *Server) handleRSVP(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "get session", err)
 		return
 	}
+	// A block either way hides the run from "going" without revealing the
+	// block; "out" stays allowed so a pre-block RSVP can be withdrawn.
+	if req.Status == "going" {
+		blocked, err := s.store.Queries.AreBlocked(r.Context(), gen.AreBlockedParams{BlockerID: userID(r), BlockedID: session.CreatedBy})
+		if err != nil {
+			s.internalError(w, "check blocked", err)
+			return
+		}
+		if blocked {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+	}
 	if session.CanceledAt != nil {
 		writeError(w, http.StatusUnprocessableEntity, "this run was canceled")
 		return
