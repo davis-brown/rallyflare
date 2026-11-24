@@ -409,3 +409,88 @@ func TestCourtGamesHidePrivateRecorder(t *testing.T) {
 		t.Errorf("anonymous listing leaks private recorder id %s: %s", recorder.User.ID, body)
 	}
 }
+
+func TestRecordGameRespectsBlocks(t *testing.T) {
+	ts, st := newTestServer(t)
+	a := registerUser(t, ts, "game-block-a@test.local", "A")
+	b := registerUser(t, ts, "game-block-b@test.local", "B")
+	court := createTestCourt(t, ts, a.AccessToken, "Block Court", ruckerLat, ruckerLng)
+	seedCheckIns(t, st, court.ID, a.User.ID, b.User.ID)
+
+	record := func(recorder, other testUser) *http.Response {
+		return doJSON(t, ts, http.MethodPost, "/courts/"+court.ID+"/games", recorder.AccessToken, map[string]any{
+			"team_a": []string{recorder.User.ID}, "team_b": []string{other.User.ID}, "winning_team": 0,
+		})
+	}
+	block := func(blocker, blocked testUser) {
+		resp := doJSON(t, ts, http.MethodPut, "/users/"+blocked.User.ID+"/block", blocker.AccessToken, nil)
+		if resp.StatusCode >= 300 {
+			defer resp.Body.Close()
+			t.Fatalf("block: status %d: %s", resp.StatusCode, readBody(t, resp))
+		}
+		resp.Body.Close()
+	}
+	unblock := func(blocker, blocked testUser) {
+		doJSON(t, ts, http.MethodDelete, "/users/"+blocked.User.ID+"/block", blocker.AccessToken, nil).Body.Close()
+	}
+	countGames := func() int {
+		var n int
+		if err := st.Pool.QueryRow(context.Background(), "SELECT count(*) FROM games").Scan(&n); err != nil {
+			t.Fatalf("count games: %v", err)
+		}
+		return n
+	}
+
+	// A block in either direction stops the recorder from listing the other player.
+	for _, c := range []struct {
+		name               string
+		blocker, blocked   testUser
+		recorder, opponent testUser
+	}{
+		{"blocked recorder", b, a, a, b},
+		{"blocking recorder", a, b, a, b},
+	} {
+		block(c.blocker, c.blocked)
+		resp := record(c.recorder, c.opponent)
+		if resp.StatusCode != http.StatusUnprocessableEntity {
+			t.Errorf("%s: status %d, want 422: %s", c.name, resp.StatusCode, readBody(t, resp))
+		}
+		resp.Body.Close()
+		if n := countGames(); n != 0 {
+			t.Errorf("%s: %d games created, want 0", c.name, n)
+		}
+		unblock(c.blocker, c.blocked)
+	}
+
+	// A block placed after recording hides the pending game from the blocker.
+	resp := record(b, a)
+	if resp.StatusCode != http.StatusCreated {
+		defer resp.Body.Close()
+		t.Fatalf("record unblocked game: status %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+	gameID := decodeJSON[gameResp](t, resp).Game.ID
+	resp = doJSON(t, ts, http.MethodGet, "/me/games/pending", a.AccessToken, nil)
+	if pending := decodeJSON[map[string][]map[string]any](t, resp); len(pending["games"]) != 1 {
+		t.Fatalf("pending before block = %d, want 1", len(pending["games"]))
+	}
+	block(a, b)
+	resp = doJSON(t, ts, http.MethodGet, "/me/games/pending", a.AccessToken, nil)
+	if pending := decodeJSON[map[string][]map[string]any](t, resp); len(pending["games"]) != 0 {
+		t.Errorf("pending after block = %d, want 0", len(pending["games"]))
+	}
+
+	// Nor can the blocker confirm it with the saved game id.
+	resp = doJSON(t, ts, http.MethodPost, "/games/"+gameID+"/confirm", a.AccessToken, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("confirm after block: status %d, want 403: %s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+	var status string
+	if err := st.Pool.QueryRow(context.Background(),
+		"SELECT status FROM games WHERE id = $1", gameID).Scan(&status); err != nil {
+		t.Fatalf("read game status: %v", err)
+	}
+	if status != "unconfirmed" {
+		t.Errorf("status after blocked confirm = %q, want unconfirmed", status)
+	}
+}
